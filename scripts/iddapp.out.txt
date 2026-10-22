@@ -1,1 +1,0 @@
-SwDeviceCreate failed with 0x80070005

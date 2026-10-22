@@ -1,3 +1,0 @@
-An error has occurred setting the element data.
-The value is protected by Secure Boot policy and cannot be modified or deleted.
-==VERIFY== 

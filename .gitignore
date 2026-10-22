@@ -1,10 +1,11 @@
-# 构建产物与中间物
+# ===== 构建产物与中间物 =====
 dist/
 vendor/
 **/bin/
 **/obj/
 **/build/
 **/.gradle/
+**/x64/
 *.zip
 
 # Android
@@ -20,11 +21,37 @@ local.properties
 *.ilk
 *.tlog
 *.cache
+*.iobj
+*.ipdb
+*.recipe
+*.tmh
+*.cer
+*.dll
+*.bak
 
-# 日志与临时
+# 编码产物 / 媒体中间物
+*.h264
+
+# 日志与临时产物
 *.log
 *.etl
 launcher.log
+
+# 调试截图与抓帧
+*.png
+*.bmp
+frame_preview.bmp
+
+# 调试文本/追踪输出
+scripts/*.txt
+scripts/*.sum
+scripts/iddapp.out.txt
+scripts/pnputil_*.txt
+scripts/testsigning*.txt
+scripts/trace_*.txt
+scripts/tracelog_*.txt
+scripts/sysstate.txt
+scripts/verify_testmode.txt
 
 # IDE
 .vs/
@@ -37,4 +64,3 @@ src/Driver/windows-driver-samples/
 # 大体积安装器 / 编译出的测试二进制
 scripts/wdksetup.exe
 *.exe
-frame_preview.bmp
