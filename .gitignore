@@ -64,3 +64,7 @@ src/Driver/windows-driver-samples/
 # 大体积安装器 / 编译出的测试二进制
 scripts/wdksetup.exe
 *.exe
+
+# 发布包目录例外（zip 入库）
+!releases/
+!releases/*.zip
