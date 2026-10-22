@@ -1,0 +1,262 @@
+// padextend_encoder.cpp - Media Foundation H.264 encoder, C ABI.
+#define PADEXTEND_ENCODER_EXPORTS
+#include "padextend_encoder.h"
+#include <windows.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mftransform.h>
+#include <mferror.h>
+#include <codecapi.h>
+#include <icodecapi.h>
+#include <wrl/client.h>
+#include <vector>
+#include <cstring>
+
+#pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mfuuid.lib")
+#pragma comment(lib, "mf.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "strmiids.lib")
+
+using Microsoft::WRL::ComPtr;
+
+namespace {
+struct MfGlobalInit {
+    bool ok=false;
+    MfGlobalInit(){ ok = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)) && SUCCEEDED(MFStartup(MF_VERSION)); }
+};
+MfGlobalInit g_init;
+
+void BgraToNv12(const uint8_t* bgra, int w, int h, uint8_t* nv12) {
+    uint8_t* y = nv12;
+    uint8_t* uv = nv12 + (size_t)w*h;
+    for (int j=0;j<h;++j) for (int i=0;i<w;++i) {
+        const uint8_t* p = bgra + ((size_t)j*w+i)*4;
+        int B=p[0],G=p[1],R=p[2];
+        int Y=((66*R+129*G+25*B+128)>>8)+16;
+        y[(size_t)j*w+i]=(uint8_t)(Y<0?0:Y>255?255:Y);
+    }
+    for (int j=0;j<h;j+=2) for (int i=0;i<w;i+=2) {
+        const uint8_t* p = bgra + ((size_t)j*w+i)*4;
+        int B=p[0],G=p[1],R=p[2];
+        int U=((-38*R-74*G+112*B+128)>>8)+128;
+        int V=((112*R-94*G-18*B+128)>>8)+128;
+        uint8_t* d = uv + ((size_t)(j/2)*w) + i;
+        d[0]=(uint8_t)(U<0?0:U>255?255:U);
+        d[1]=(uint8_t)(V<0?0:V>255?255:V);
+    }
+}
+}
+
+struct Encoder {
+    ComPtr<IMFTransform> mft;
+    int w=0,h=0,fps=30;
+    LONGLONG dur=0, pts=0;
+    std::vector<uint8_t> nv12;
+    std::vector<uint8_t> outBuf;   // last produced access unit (Annex-B)
+    std::vector<uint8_t> config;   // SPS+PPS (Annex-B)
+    bool configCaptured=false;
+    int lastKey=0;
+};
+
+static bool CreateMft(Encoder* e, int bitrate, int keyInterval) {
+    MFT_REGISTER_TYPE_INFO ot = { MFMediaType_Video, MFVideoFormat_H264 };
+    // Try hardware first, then software sync MFT.
+    for (int pass=0; pass<2; ++pass) {
+        UINT32 flags = MFT_ENUM_FLAG_SORTANDFILTER | MFT_ENUM_FLAG_TRANSCODE_ONLY;
+        flags |= (pass==0)? MFT_ENUM_FLAG_HARDWARE : MFT_ENUM_FLAG_SYNCMFT;
+        IMFActivate** act=nullptr; UINT32 cnt=0;
+        if (FAILED(MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, flags, nullptr, &ot, &act, &cnt)) || cnt==0) {
+            if (act) CoTaskMemFree(act);
+            continue;
+        }
+        ComPtr<IMFTransform> mft;
+        HRESULT hr = act[0]->ActivateObject(IID_PPV_ARGS(&mft));
+        for (UINT32 i=0;i<cnt;++i) act[i]->Release();
+        CoTaskMemFree(act);
+        if (FAILED(hr)) continue;
+
+        // Unlock async hardware MFT if needed (we still use it synchronously via ProcessOutput).
+        ComPtr<IMFAttributes> attrs;
+        if (SUCCEEDED(mft->GetAttributes(&attrs))) {
+            UINT32 async=0;
+            attrs->GetUINT32(MF_TRANSFORM_ASYNC, &async);
+            if (async) { if (pass==0) continue; } // skip async HW for now; use sync SW for correctness
+        }
+
+        ComPtr<IMFMediaType> outType;
+        MFCreateMediaType(&outType);
+        outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
+        outType->SetUINT32(MF_MT_AVG_BITRATE, bitrate);
+        MFSetAttributeSize(outType.Get(), MF_MT_FRAME_SIZE, e->w, e->h);
+        MFSetAttributeRatio(outType.Get(), MF_MT_FRAME_RATE, e->fps, 1);
+        MFSetAttributeRatio(outType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+        outType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+        outType->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base);
+        if (FAILED(mft->SetOutputType(0, outType.Get(), 0))) continue;
+
+        ComPtr<IMFMediaType> inType;
+        MFCreateMediaType(&inType);
+        inType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        inType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
+        MFSetAttributeSize(inType.Get(), MF_MT_FRAME_SIZE, e->w, e->h);
+        MFSetAttributeRatio(inType.Get(), MF_MT_FRAME_RATE, e->fps, 1);
+        MFSetAttributeRatio(inType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+        inType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+        if (FAILED(mft->SetInputType(0, inType.Get(), 0))) continue;
+
+        // Configure GOP / key-frame interval if supported.
+        ComPtr<ICodecAPI> codec;
+        if (SUCCEEDED(mft.As(&codec))) {
+            if (keyInterval > 0) {
+                VARIANT v; v.vt=VT_UI4; v.ulVal=(ULONG)keyInterval;
+                codec->SetValue(&CODECAPI_AVEncMPVGOPSize, &v);
+            }
+            VARIANT rc; rc.vt=VT_UI4; rc.ulVal=eAVEncCommonRateControlMode_CBR;
+            codec->SetValue(&CODECAPI_AVEncCommonRateControlMode, &rc);
+        }
+
+        mft->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+        mft->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+        e->mft = mft;
+        return true;
+    }
+    return false;
+}
+
+extern "C" {
+
+PEX_API PexEncoder PexEncoderCreate(int width,int height,int fps,int bitrate,int keyIntervalFrames){
+    if (!g_init.ok) return nullptr;
+    if (width<=0||height<=0||(width&1)||(height&1)) return nullptr;
+    Encoder* e = new Encoder();
+    e->w=width; e->h=height; e->fps=(fps>0?fps:30);
+    e->dur = 10000000LL / e->fps;
+    e->nv12.resize((size_t)width*height*3/2);
+    if (!CreateMft(e, bitrate>0?bitrate:8000000, keyIntervalFrames)) { delete e; return nullptr; }
+    return e;
+}
+
+static void CaptureConfigFromAu(Encoder* e, const uint8_t* au, int len) {
+    // Extract SPS(7)+PPS(8) NALs (Annex-B) from an access unit into e->config.
+    if (e->configCaptured) return;
+    std::vector<uint8_t> cfg;
+    int i=0;
+    while (i+4 <= len) {
+        // find start code
+        int sc=-1, scLen=0;
+        for (int j=i;j+3<len;++j){
+            if (au[j]==0&&au[j+1]==0&&au[j+2]==1){ sc=j; scLen=3; break; }
+            if (j+4<len && au[j]==0&&au[j+1]==0&&au[j+2]==0&&au[j+3]==1){ sc=j; scLen=4; break; }
+        }
+        if (sc<0) break;
+        int nalStart=sc+scLen;
+        // find next start code
+        int next=len;
+        for (int j=nalStart;j+3<len;++j){
+            if (au[j]==0&&au[j+1]==0&&au[j+2]==1){ next=j; break; }
+            if (j+4<len && au[j]==0&&au[j+1]==0&&au[j+2]==0&&au[j+3]==1){ next=j; break; }
+        }
+        int type = au[nalStart]&0x1F;
+        if (type==7||type==8){
+            cfg.insert(cfg.end(), au+sc, au+next);
+        }
+        i=next;
+    }
+    if (!cfg.empty()){ e->config=cfg; e->configCaptured=true; }
+}
+
+PEX_API int PexEncoderEncode(PexEncoder enc,const uint8_t* bgra,int bgraLen,
+                             const uint8_t** outPtr,int* outLen,int* isKeyframe){
+    Encoder* e=(Encoder*)enc;
+    if(!e||!bgra) return -1;
+    if(bgraLen < e->w*e->h*4) return -2;
+    *outPtr=nullptr; *outLen=0; if(isKeyframe)*isKeyframe=0;
+
+    BgraToNv12(bgra, e->w, e->h, e->nv12.data());
+
+    ComPtr<IMFMediaBuffer> buf;
+    MFCreateMemoryBuffer((DWORD)e->nv12.size(), &buf);
+    BYTE* pb=nullptr; DWORD mx=0;
+    buf->Lock(&pb,&mx,nullptr);
+    memcpy(pb, e->nv12.data(), e->nv12.size());
+    buf->Unlock();
+    buf->SetCurrentLength((DWORD)e->nv12.size());
+    ComPtr<IMFSample> samp; MFCreateSample(&samp); samp->AddBuffer(buf.Get());
+    samp->SetSampleTime(e->pts); samp->SetSampleDuration(e->dur); e->pts+=e->dur;
+
+    HRESULT hr = e->mft->ProcessInput(0, samp.Get(), 0);
+    if (hr==MF_E_NOTACCEPTING) { /* will drain below then retry once */ }
+
+    e->outBuf.clear();
+    bool key=false;
+    for (;;) {
+        MFT_OUTPUT_STREAM_INFO si={}; e->mft->GetOutputStreamInfo(0,&si);
+        ComPtr<IMFMediaBuffer> ob;
+        MFCreateMemoryBuffer(si.cbSize? si.cbSize : (DWORD)(e->w*e->h), &ob);
+        ComPtr<IMFSample> os; MFCreateSample(&os); os->AddBuffer(ob.Get());
+        MFT_OUTPUT_DATA_BUFFER odb={}; odb.pSample=os.Get();
+        DWORD status=0;
+        HRESULT ohr = e->mft->ProcessOutput(0,1,&odb,&status);
+        if (ohr==MF_E_TRANSFORM_NEED_MORE_INPUT) break;
+        if (FAILED(ohr)) { if(odb.pEvents)odb.pEvents->Release(); break; }
+        // keyframe flag
+        UINT32 clean=0;
+        if (SUCCEEDED(odb.pSample->GetUINT32(MFSampleExtension_CleanPoint,&clean)) && clean) key=true;
+        ComPtr<IMFMediaBuffer> cont; odb.pSample->ConvertToContiguousBuffer(&cont);
+        BYTE* cp=nullptr; DWORD cl=0; cont->Lock(&cp,nullptr,&cl);
+        size_t off=e->outBuf.size(); e->outBuf.resize(off+cl); memcpy(e->outBuf.data()+off,cp,cl);
+        cont->Unlock();
+        if (odb.pEvents) odb.pEvents->Release();
+    }
+
+    if (hr==MF_E_NOTACCEPTING) { e->mft->ProcessInput(0, samp.Get(), 0); }
+
+    if (!e->outBuf.empty()) {
+        CaptureConfigFromAu(e, e->outBuf.data(), (int)e->outBuf.size());
+        // detect IDR (type 5) if clean point not reported
+        if (!key) {
+            for (int j=0;j+4<(int)e->outBuf.size();++j){
+                if (e->outBuf[j]==0&&e->outBuf[j+1]==0&&e->outBuf[j+2]==0&&e->outBuf[j+3]==1){
+                    if((e->outBuf[j+4]&0x1F)==5){key=true;break;}
+                }
+            }
+        }
+        *outPtr=e->outBuf.data(); *outLen=(int)e->outBuf.size();
+        if(isKeyframe)*isKeyframe=key?1:0;
+    }
+    return 0;
+}
+
+PEX_API int PexEncoderGetConfig(PexEncoder enc,const uint8_t** outPtr,int* outLen){
+    Encoder* e=(Encoder*)enc;
+    if(!e||!e->configCaptured) return -1;
+    *outPtr=e->config.data(); *outLen=(int)e->config.size();
+    return 0;
+}
+
+PEX_API void PexEncoderForceKeyframe(PexEncoder enc){
+    Encoder* e=(Encoder*)enc;
+    if(!e) return;
+    ComPtr<ICodecAPI> codec;
+    if (SUCCEEDED(e->mft.As(&codec))) {
+        VARIANT v; v.vt=VT_UI4; v.ulVal=1;
+        codec->SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &v);
+    }
+}
+
+PEX_API void PexEncoderDestroy(PexEncoder enc){
+    Encoder* e=(Encoder*)enc;
+    if(!e) return;
+    if (e->mft){
+        e->mft->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN,0);
+        e->mft->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM,0);
+        e->mft->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING,0);
+    }
+    delete e;
+}
+
+} // extern "C"
+
+

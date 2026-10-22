@@ -1,0 +1,17 @@
+Microsoft PnP Utility
+
+Ignoring /force when used with /uninstall to delete driver package.
+Driver package uninstalled.
+Driver package deleted successfully.
+==ADDNEW== 
+Microsoft PnP Utility
+
+Adding driver package:  IddSampleDriver.inf
+Driver package added successfully.
+Published Name:         oem292.inf
+Driver package installed on device: SWD\IddSampleDriver\IddSampleDriver
+
+Total driver packages:  1
+Added driver packages:  1
+==ENUM== 
+Original Name:      iddsampledriver.inf

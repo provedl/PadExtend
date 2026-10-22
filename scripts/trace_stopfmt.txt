@@ -1,0 +1,43 @@
+Operation Status:       0L	???????
+
+Logger Name:            PadExtendFps
+Logger Id:              0x35
+Logger Thread Id:       0000000000009B2C
+Guid:                   ea909ff9-c942-11f1-ac75-f86dccac48c5
+Buffer Size:            64 Kb
+Maximum Buffers:        54
+Minimum Buffers:        32
+Number of Buffers:      32
+Free Buffers:           32
+Buffers Written:        4
+Events Lost:            0
+Log Buffers Lost:       0
+Real Time Buffers Lost: 0
+Real Time Consumers:    0
+ClockType:              PerfCounter
+Log Mode:               Sequential 
+Hybrid Shutdown:        Stop
+Maximum File Size:      not set
+Buffer Flush Timer:     not set
+Log Filename:           D:\Extendscreen\PadExtend\scripts\padextend_fps.etl
+==STOPPED== 
+WPPFMT : error : 0x2 loading E:\Source\VirtualDisplay\x64\Release\MuMuIddDriver.pdb.
+Setting log file to: D:\Extendscreen\PadExtend\scripts\padextend_fps.etl
+Examining C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\default.tmf for message formats,  3 found.
+Searching for TMF files on path: D:\Extendscreen\PadExtend\src\Driver\PadExtend.IddDriver\x64\Release
+Logfile D:\Extendscreen\PadExtend\scripts\padextend_fps.etl:
+	OS version  		10.0.26300  (Currently running on 10.0.26300)
+	Start Time  		2026-10-16-17:40:07.260
+	End Time    		2026-10-16-17:41:26.030
+	Timezone is 		@tzres.dll,-572 (Bias is -480mins)
+	BufferSize           	65536 B
+	Maximum File Size    	0 MB
+	Buffers  Written     	4
+	Logger Mode Settings	(0) Logfile Mode is not set
+	ProcessorCount        	16
+
+Processing completed   Buffers: 4, Events: 7, EventsLost: 0 :: Format Errors: 0, Unknowns: 3 
+
+Event traces dumped to D:\Extendscreen\PadExtend\scripts\padextend_fps.txt
+Event Summary dumped to D:\Extendscreen\PadExtend\scripts\padextend_fps.txt.sum
+==FMTDONE==

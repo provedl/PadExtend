@@ -1,0 +1,40 @@
+# 构建产物与中间物
+dist/
+vendor/
+**/bin/
+**/obj/
+**/build/
+**/.gradle/
+*.zip
+
+# Android
+*.apk
+local.properties
+.gradle/
+
+# C/C++ 驱动与编码器中间物
+*.obj
+*.pdb
+*.exp
+*.lib
+*.ilk
+*.tlog
+*.cache
+
+# 日志与临时
+*.log
+*.etl
+launcher.log
+
+# IDE
+.vs/
+.idea/
+*.user
+
+# 第三方：微软驱动样例完整副本（通过子模块/上游获取，不入库）
+src/Driver/windows-driver-samples/
+
+# 大体积安装器 / 编译出的测试二进制
+scripts/wdksetup.exe
+*.exe
+frame_preview.bmp

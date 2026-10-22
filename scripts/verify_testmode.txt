@@ -1,0 +1,3 @@
+testsigning             Yes
+==SECUREBOOT== 
+SecureBoot=False

@@ -1,0 +1,26 @@
+Logger Started...
+Enabling b254994f-46e6-4718-80a0-0a3aa50d6ce4 (Flags = 0x000000ff Level = 5  ) to logger 53
+Operation Status:       0L	???????
+
+Logger Name:            PadExtendFps
+Logger Id:              0x35
+Logger Thread Id:       0000000000009B2C
+Guid:                   ea909ff9-c942-11f1-ac75-f86dccac48c5
+Session Security:       D:(A;;0x1800;;;WD)(A;;0x120fff;;;SY)(A;;0x120fff;;;LS)(A;;0x120fff;;;NS)(A;;0x120fff;;;BA)(A;;0xee5;;;LU)(A;;LC;;;MU)(A;;0x1800;;;AC)(A;;0x1800;;;S-1-15-3-1024-3153509613-960666767-3724611135-2725662640-12138253-543910227-1950414635-4190290187)
+Buffer Size:            64 Kb
+Maximum Buffers:        54
+Minimum Buffers:        32
+Number of Buffers:      32
+Free Buffers:           32
+Buffers Written:        1
+Events Lost:            0
+Log Buffers Lost:       0
+Real Time Buffers Lost: 0
+Real Time Consumers:    0
+ClockType:              PerfCounter
+Log Mode:               Sequential 
+Hybrid Shutdown:        Stop
+Maximum File Size:      not set
+Buffer Flush Timer:     not set
+Log Filename:           D:\Extendscreen\PadExtend\scripts\padextend_fps.etl
+==STARTED==

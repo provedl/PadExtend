@@ -1,0 +1,2 @@
+D:\Extendscreen\PadExtend\src\Driver\PadExtend.IddDriver\x64\Release\IddSampleDriver.dll.lastcodeanalysissucceeded
+D:\Extendscreen\PadExtend\src\Driver\PadExtend.IddDriver\IddSampleDriver\x64\Release\NativeCodeAnalysis.read.1.tlog

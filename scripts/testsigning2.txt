@@ -1,0 +1,5 @@
+SecureBoot=False
+==SET== 
+The operation completed successfully.
+==VERIFY== 
+testsigning             Yes
